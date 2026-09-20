@@ -1,0 +1,28 @@
+# Python artifacts
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Distribution / packaging
+dist/
+build/
+*.egg-info/
+
+# Unit test & coverage
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Local evidence and receipts
+evidence/
+*.receipt.json
+
+# Environment and IDE
+.env
+.venv
+venv/
+ENV/
+.DS_Store
+.idea/
+.vscode/
