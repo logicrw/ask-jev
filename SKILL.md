@@ -1,6 +1,6 @@
 ---
 name: ask-jev
-description: Use Jev autonomously for closed-set semantic decisions, checking whether supplied evidence supports a claim, and selecting verbatim relevant passages. Use when a small advisory judgment can reduce reading or routing work; exclude permission approval, external fact discovery, deterministic calculations, and long-form generation.
+description: Fast, bounded advisory judgments and verbatim evidence purification in coding-agent workflows. Use when: (1) routing subtasks or choosing among 2–12 explicit options (choose); (2) verifying whether build/test logs, diffs, or tool outputs strictly support a claim (check); (3) extracting verbatim error traces and failure contexts from dense terminal output (purify). Jev calls enforce a hard 280ms deadline and fail open. Exclude permission approval, irreversible actions, external fact lookup, exact arithmetic, and long-form text generation.
 metadata:
   owner: logicrw
   version: "1.0.0"
