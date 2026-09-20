@@ -204,7 +204,7 @@ pytest -v
 ```
 
 ```
-146 passed in 7.16s
+147 passed in 6.64s
 ```
 
 ---
@@ -336,7 +336,7 @@ pytest -v
 ```
 
 ```
-146 passed in 7.16s
+147 passed in 6.64s
 ```
 
 ---
