@@ -10,99 +10,86 @@
 </p>
 
 <p align="center">
-  <strong>Ultra-fast, fail-open advisory decisions and verbatim extractive reading view for AI coding agents and CLI pipelines.</strong><br>
-  <em>面向 AI 编程智能体与命令行管道的高性能、防虚构、毫秒级 Fail-Open 决策与原文提纯引擎。</em>
+  Bounded advisory decisions and verbatim extractive reading view for AI coding agents and CLI pipelines.
+  <br>
+  面向 AI 编程智能体与命令行管道的有界决策与原文提纯工具。
 </p>
 
 <p align="center">
-  <a href="#english">English Documentation</a> • <a href="#chinese">中文深度文档</a>
+  <a href="#english"><b>English</b></a> &nbsp;｜&nbsp; <a href="#中文"><b>中文</b></a>
 </p>
 
 ---
 
 <a name="english"></a>
-# English Documentation
+## English
 
-## ⚡ The Dilemma: Heavy LLMs vs. Fragile Heuristics
+### Overview
 
-When autonomous coding agents (Claude Code, Codex, Antigravity, OpenClaw, Maestro) or automated CI/CD pipelines execute tasks, they constantly face **micro-decisions**:
-- *Routing*: Does this issue need a docs fix, a refactor, or a unit test?
-- *Verification*: Does this command output factually prove the bug is resolved?
-- *Context Pruning*: How do we extract only the failing traceback from a 200 KiB log without losing lines or inventing text?
+When building autonomous coding agents (Claude Code, Codex, Antigravity, OpenClaw, Maestro) or automated CI pipelines, delegating every minor branching decision to a heavy reasoning model introduces seconds of latency, token waste, and context drift. Conversely, naive regex heuristics are brittle and lack semantic understanding.
 
-Calling a full 70B+ frontier LLM for every minor decision causes **3–15 second latency bottlenecks**, massive token costs, and prompt drift. Conversely, naive regex heuristics are brittle and lack semantic understanding.
-
-`ask-jev` delivers a **deterministic, fail-open advisory cognitive layer**: sub-280ms speed, zero external dependencies, and strict byte-for-byte evidence preservation.
+`ask-jev` is a lightweight, fail-open CLI utility and Agent Skill for closed-set choices, evidence verification, and verbatim text purification. It operates with a strict 280ms deadline and zero external dependencies.
 
 ---
 
-## 🔬 What Real-World JEV Research Revealed & How `ask-jev` Solves It
+### System 1 (Advisory) vs. System 2 (Reasoning LLMs)
 
-Recent independent community investigations across GitHub and production forks (*NousResearch/Hermes, Winnow, fast-jev-compaction, typesafe-mcp, Pi, Prism, SemDecide*) exposed several critical traps in early JEV implementations.
-
-`ask-jev` was engineered specifically to counter these 6 failure modes:
-
-| # | Community Failure Mode in the Wild | Real-World Incident / Evidence | How `ask-jev` Surgically Solves It |
-|---|---|---|---|
-| **1** | **Narrative Illusion & Evidence Stripping** | *fast-jev #65*: Compaction stripped raw tool errors and exit codes while keeping LLM text, causing agents to hallucinate completion for 9 consecutive loops. | **AST & Syntax Structural Pinning**: `split_units()` encloses complete Python modules, fenced blocks, git diff hunks, and critical error anchors (`exit code`, `Traceback`, `fatal`). Execution evidence is never stripped from narrative. |
-| **2** | **Self-Referential Confirmation Bias** | *typesafe-mcp PR #13*: Agents injected "Obviously P0" into the prompt, receiving a 0.99 confidence echo that developers mistook for independent verification. | **Advisory Boundary & Dual 0.85 Threshold**: `choose` requires BOTH $\text{confidence} \ge 0.85$ and $\text{winner probability} \ge 0.85$; `check` requires $\ge 0.85$ (True) or $\le 0.15$ (False). Prompts must carry neutral observations only. |
-| **3** | **SDK Retry Storms & Hanging Deadlocks** | Official SDK defaults to 2 retries, 500ms backoff, 30s timeouts; JS SDK had unhandled `AbortError`. Long timeouts stall multi-agent swarms. | **Hard 280ms Wall Deadline**: Single request, 0 retries. Covers DNS, TLS handshake, headers, and full body read. POSIX process group `SIGKILL` on timeout. Never hangs your agent. |
-| **4** | **Sidecar Daemon Security Vulnerability** | *Winnow #1*: Running a local background HTTP daemon without auth or CORS allowed malicious web scripts to drain quotas or hijack context. | **Daemonless Pure CLI Architecture**: Zero open ports, zero listening daemons. Pure on-demand process execution via stdin/pipes, with zero persistent attack surface. |
-| **5** | **Semantic Drift & Input Amputation** | *fast-jev #52*: Asking "Is this strictly non-reproducible?" coupled with aggressive pre-pruning erased necessary task constraints. | **Task-Continuity Metric & Full Visibility**: Prompts strictly ask *"What evidence/constraints are required to continue correctly?"* Input context is never amputated prior to judgment. |
-| **6** | **Payload Corruption & Float Overflow** | *typesafe-mcp PR #15 / fast-jev #29*: JS float64 precision loss with integers $> 2^{53}$, truncated 16MB responses returning success, NaN acceptance. | **Strict Python Math & Boundary Validation**: Validates finite probabilities ($0.0 \le p \le 1.0$), rejects `NaN`, `inf`, booleans, and negative numbers. Hard 256 KiB input ceiling. |
+| Dimension | System 2 (Reasoning LLMs) | ask-jev (System 1 Advisory) |
+| :--- | :--- | :--- |
+| **Latency** | 1,500ms – 10,000ms+ (Slow) | **< 280ms hard deadline** (DNS, TLS, body, reap) |
+| **Output Contract** | Freeform text / Markdown / Fragile JSON | **Typed JSON** (`schema: ask-jev.v1`) |
+| **Context Extraction** | Generative summary (paraphrased, hallucination risk) | **Verbatim physical LF lines** (AST & syntax preserved) |
+| **Failure Behavior** | Crash, prompt injection, hanging timeout | **Fail-open (exit 0)**, full original text fallback |
+| **Dependencies** | Bulky SDKs, background threads, external packages | **Zero external dependencies** (Python 3.10+ stdlib) |
+| **Attack Surface** | Background daemons, open loopback ports | **Daemonless CLI** (`O_NOFOLLOW`, private-key filter) |
 
 ---
 
-## 🏛️ Architecture & Execution Flow
+### Community Findings & Design Decisions
 
-```
-                               Incoming Payload
-                      (CLI stdin / File / Agent Context)
-                                      │
-                                      ▼
-               ┌──────────────────────────────────────────────┐
-               │    Local Safety & Boundary Verifications     │
-               │    • 256 KiB hard input ceiling              │
-               │    • Secret & private key interceptor        │
-               │    • O_NOFOLLOW / O_DIRECTORY path pinning   │
-               │    • ~/Pictures directory lexical refusal    │
-               └──────────────────────┬───────────────────────┘
-                                      │
-                                      ▼
-               ┌──────────────────────────────────────────────┐
-               │        Bounded Process Execution Engine      │
-               │    • Subprocess POSIX process group          │
-               │    • Monotonic deadline: 280 ms              │
-               │    • Immediate SIGKILL upon expiration       │
-               └──────────────────────┬───────────────────────┘
-                                      │
-             ┌────────────────────────┴────────────────────────┐
-             │                                                 │
-             ▼                                                 ▼
- [ OK / Decisive Verdict ]                         [ Timeout / 429 / Offline ]
- • choose: verified winning label                  • Exit Code 0 (Zero stderr)
- • check: boolean truth assessment                 • purify: 100% verbatim fallback
- • purify: verbatim LF line spans                  • choose/check: answer: null
- • Signed SHA-256 evidence receipt                 • Agent workflow proceeds safely!
-```
+Recent community experiments across GitHub (*NousResearch/Hermes, Winnow, fast-jev-compaction, typesafe-mcp, Pi, Prism, SemDecide*) revealed several practical failure modes in early Jev integrations. Here is how `ask-jev` handles them:
+
+1. **Narrative vs. Execution Evidence (*fast-jev #65*)**
+   - *Problem*: Aggressive context compression stripped raw tool errors and exit codes while keeping model chit-chat, causing agents to hallucinate completion for 9 consecutive turns.
+   - *Design*: `split_units()` encloses complete Python modules, fenced blocks, git diff hunks, and critical error tokens (`Traceback`, `exit code`, `returncode`, `assert`, `panic`, `Error:`). Execution evidence is never stripped from the narrative.
+
+2. **Self-Referential Confirmation Bias (*typesafe-mcp #13*)**
+   - *Problem*: Agents prompted Jev with statements like "Obviously P0" and received a 0.99 confidence confirmation that developers treated as independent verification.
+   - *Design*: Jev output is strictly advisory. `choose` requires both confidence $\ge 0.85$ and winner probability $\ge 0.85$. `check` returns `true` at $\ge 0.85$, `false` at $\le 0.15$, and `null` for intermediate values. Prompts carry neutral observations only.
+
+3. **SDK Retries & Hanging Deadlocks**
+   - *Problem*: Upstream SDKs defaulted to 2 retries, 500ms backoff, and 10–30s timeouts. In high-frequency agent loops, delayed responses stalled multi-agent coordination.
+   - *Design*: Single request with a hard 280ms wall deadline covering DNS, TLS, headers, and body read. Process group `SIGKILL` on expiration. Any network or provider error (401/402/429) exits 0 with a clean fallback.
+
+4. **Sidecar Daemon Security Surface (*Winnow #1*)**
+   - *Problem*: Running a local background HTTP sidecar without authentication or CORS allowed malicious web scripts to drain quotas or access context.
+   - *Design*: Zero background daemons, zero open ports. Executed strictly on-demand via standard UNIX pipes and stdin. Path traversal is blocked using `O_DIRECTORY | O_NOFOLLOW`. Payloads containing private keys (`BEGIN PRIVATE KEY`) or bearer tokens are dropped before reaching the network.
+
+5. **Semantic Misalignment & State Fitting (*fast-jev #52*)**
+   - *Problem*: Asking whether evidence was "non-reproducible" wiped entire task contexts. Pre-pruning text before passing it to the model compounded the issue.
+   - *Design*: Prompts focus strictly on task continuity: *"What evidence or constraints are required to continue correctly?"* Candidate text remains visible in full during judgment.
+
+6. **Payload Validation (*typesafe-mcp #15 / fast-jev #29*)**
+   - *Problem*: JavaScript float64 precision loss with integers $> 2^{53}$, silent truncations on oversized responses, and unhandled `NaN` values.
+   - *Design*: Enforces strict bounds: input $\le 256\text{ KiB}$, request $\le 96\text{ KiB}$, response $\le 32\text{ KiB}$. Validates finite probabilities ($0.0 \le p \le 1.0$) and rejects `NaN`, `inf`, and booleans.
 
 ---
 
-## 🛠️ CLI Modes & Usage
+### CLI Modes & Examples
 
-### 1. `choose`: Closed-Set Decision Classification
-Evaluate an ambiguous or qualitative scenario against 2–12 explicit, closed options.
+#### 1. `choose`: Closed-Set Classification
+Categorizes text into 2–12 explicit options.
 
 ```bash
-printf '%s\n' 'Fix typo in documentation for install command' | \
-  ask-jev choose \
-    --question 'Which pull request category fits best?' \
+printf '%s\n' 'Fix typo in install command' | \
+  python3 scripts/ask_jev.py choose \
+    --question 'Which category fits best?' \
     --option 'docs' \
     --option 'bugfix' \
     --option 'feature'
 ```
 
-**JSON Output:**
+Output:
 ```json
 {
   "schema": "ask-jev.v1",
@@ -113,30 +100,24 @@ printf '%s\n' 'Fix typo in documentation for install command' | \
   "judgment": {
     "choice": "docs",
     "confidence": 0.96,
-    "probabilities": {
-      "docs": 0.96,
-      "bugfix": 0.03,
-      "feature": 0.01
-    }
+    "probabilities": {"docs": 0.96, "bugfix": 0.03, "feature": 0.01}
   },
   "advisory": true,
-  "receipt": "/path/to/evidence/receipt.json",
-  "evidence_path": "/path/to/evidence/source.txt"
+  "receipt": "/path/to/receipt.json",
+  "evidence_path": "/path/to/source.txt"
 }
 ```
 
----
-
-### 2. `check`: Evidence Support Verification
-Determine whether the supplied evidence factually supports a specific claim.
+#### 2. `check`: Evidence Assertion
+Verifies whether the provided text factually supports a claim.
 
 ```bash
 git log -1 --stat | \
-  ask-jev check \
-    --question 'Does this commit include any database migration files?'
+  python3 scripts/ask_jev.py check \
+    --question 'Does this commit include database migrations?'
 ```
 
-**JSON Output:**
+Output:
 ```json
 {
   "schema": "ask-jev.v1",
@@ -146,23 +127,21 @@ git log -1 --stat | \
   "answer": false,
   "judgment": 0.04,
   "advisory": true,
-  "receipt": "/path/to/evidence/receipt.json",
-  "evidence_path": "/path/to/evidence/source.txt"
+  "receipt": "/path/to/receipt.json",
+  "evidence_path": "/path/to/source.txt"
 }
 ```
 
----
-
-### 3. `purify`: Verbatim Extractive Reading View
-Extract only the relevant structural passages from verbose logs or source files while preserving byte-for-byte fidelity.
+#### 3. `purify`: Verbatim Extractive View
+Selects relevant physical line spans from verbose logs while preserving byte-for-byte fidelity.
 
 ```bash
-cat /var/log/build.log | \
-  ask-jev purify \
-    --query 'Compiler errors, stack traces, and failing assertions'
+cat build.log | \
+  python3 scripts/ask_jev.py purify \
+    --query 'Compiler errors, tracebacks, and failed assertions'
 ```
 
-**JSON Output:**
+Output:
 ```json
 {
   "schema": "ask-jev.v1",
@@ -170,164 +149,193 @@ cat /var/log/build.log | \
   "status": "ok",
   "reason": "verbatim_selection",
   "original_available": true,
-  "spans": [
-    {"start": 142, "end": 189}
-  ],
-  "text": "Traceback (most recent call last):\n  File \"app.py\", line 42, in <module>\n    connect()\nConnectionRefusedError: [Errno 61] Connection refused\n"
+  "spans": [{"start": 42, "end": 68}],
+  "text": "Traceback (most recent call last):\n  File \"app.py\", line 12, in <module>\n..."
 }
 ```
 
 ---
 
-## 🤖 Agent Skill Integration
+### Agent Skill Integration
 
-`ask-jev` includes a standard [Agent Skill specification](SKILL.md) compatible with modern coding agents.
+`ask-jev` includes a standard [SKILL.md](SKILL.md) for coding agents.
 
-### Example in Agent Workflows
-When your agent encounters a large 150 KiB terminal log:
 ```bash
-# Agent runs purify locally to inspect only substantive failure blocks
-python3 ~/.agents/skills/ask-jev/scripts/ask_jev.py purify \
-  --query 'Failure causes and error messages' \
-  --input-file /tmp/test_output.log
+# Clone directly into your agent skills directory
+git clone https://github.com/logicrw/ask-jev.git ~/.agents/skills/ask-jev
+chmod +x ~/.agents/skills/ask-jev/scripts/ask_jev.py
 ```
 
-If credentials are absent or the remote service is unreachable, `ask-jev` automatically emits the entire original input with zero crashes, allowing the agent to continue smoothly.
+When an agent needs to prune a 150 KiB log:
+```bash
+python3 ~/.agents/skills/ask-jev/scripts/ask_jev.py purify \
+  --query 'Error causes and failing tests' \
+  --input-file test.log
+```
+If credentials are not configured or the network is unreachable, `ask-jev` automatically emits the entire original input without failing the agent.
 
 ---
 
-## 🔐 Environment Configuration
+### Environment Variables
 
 | Variable | Required | Description |
 | :--- | :---: | :--- |
-| `TYPESAFE_API_KEY` | Yes (for remote) | API key for the underlying SystemOne provider. |
-| `HARNESS_JEV_ALLOW_REMOTE` | Yes (for remote) | Explicit consent gate (`1` or `true`). Prevents unintended network calls. |
-| `JEV_MODEL` | No | Override provider model identifier. |
-| `HARNESS_JEV_EVIDENCE_DIR` | No | Directory to persist raw evidence and execution receipts. |
+| `TYPESAFE_API_KEY` | Yes (for remote) | API key for the underlying provider. |
+| `HARNESS_JEV_ALLOW_REMOTE` | Yes (for remote) | Explicit consent gate (`1` or `true`). |
+| `JEV_MODEL` | No | Model override (defaults to standard fast model). |
+| `HARNESS_JEV_EVIDENCE_DIR` | No | Local directory for raw evidence and receipts. |
 
 ---
 
-## 🧪 Comprehensive Offline Test Suite
+### Test Suite
 
-`ask-jev` comes with 146 offline unit tests covering edge cases, unicode normalization, path jail escapes, and process timeouts with 100% mocked isolation:
+The test suite runs completely offline with 100% mocked transport:
 
 ```bash
 pytest -v
 ```
 
 ```
-============================= 146 passed in 7.16s ==============================
+146 passed in 7.16s
 ```
 
 ---
 
-<a name="chinese"></a>
-# 中文深度技术文档
+<a name="中文"></a>
+## 中文
 
-## 💡 诞生背景：大模型在自主智能体中的“微决策困境”
+### 项目概述
 
-当自主编码智能体（Claude Code、Codex、Antigravity、OpenClaw 等）在执行重构、排错或多智能体协作时，执行循环中充斥着大量的**局部微决策**：
-1. **任务路由分类**：这条用户指令应该派发给文档工具、测试套件还是重构 Agent？
-2. **状态支持度验证**：命令执行输出或 Git Diff 是否真实佐证了“测试已通过”的断言？
-3. **海量上下文提纯**：面对 200KB 的构建日志，如何抽取出真正的报错 Traceback，而不破坏物理行号、不引入任何臆造文本？
+在构建自主编程智能体（Claude Code、Codex、Antigravity、OpenClaw 等）或自动化 CI/CD 流程时，如果将每一个微小的分支判断都派发给重型推理大模型，会引入数秒的响应延迟、额外的 Token 消耗以及上下文偏移。纯正则规则虽然快速，但往往难以应对灵活的语义判断。
 
-若对每一个微决策都调用 70B+ 重型大模型，将带来 **3~15 秒的严重延迟**、海量 Token 浪费以及提示词不稳定的风险；而若采用脆弱的纯正则规则，又缺乏语义理解能力。
-
-`ask-jev` 正是为破解这一矛盾而生：**硬性限制 280ms 延迟上限、纯 Python 标准库零依赖、物理行级保真提纯、全链路 Fail-Open 弹性设计**。
+`ask-jev` 是一个面向命令行管道与智能体的辅助工具，用于闭集分类、事实支撑度校验与原文结构提纯。工具执行受限于 280ms 硬时限，采用纯 Python 标准库实现，且具备全链路 Fail-Open 降级能力。
 
 ---
 
-## 🎯 社区实战踩坑复盘：全网研究暴露的问题与我们的对症解法
+### 机制对比：System 1（辅助判断）vs. System 2（推理大模型）
 
-在前沿社区及开源项目（*NousResearch/Hermes, Winnow, fast-jev-compaction, typesafe-mcp, Pi, Prism, SemDecide*）对 JEV / SystemOne 的探索中，暴露了多项严重阻碍生产落地的隐患。
-
-`ask-jev` 在架构设计之初便全面吸收了这些教训，做出了针对性的工程解法：
-
-### 1. 杜绝“保留叙述却删掉执行证据”导致的幻觉完成（Anti-Narrative Illusion）
-- **社区踩坑**：*fast-jev #65* 证实，在激进压缩上下文时，模型往往把底层工具的报错输出、退出码删掉，却保留了智能体的自然语言叙述。导致智能体看到“我已修复问题”的叙述，误以为已完成，连续 9 轮零工具调用发生幻觉。
-- **ask-jev 解法**：在 `jev_context.py` 中引入 **语法与执行证据锚点保护（AST & Syntax Structural Pinning）**：
-  - 自动识别并完整封闭 Python AST 模块、代码块（code fence）、Git Diff 文件变更。
-  - 正则锁定 `Traceback`、`exit code`、`returncode`、`assert`、`panic`、`Error:` 等物理报错链。
-  - 判定时**绝不拆散执行证据与叙述链条**，所有输出严格对应物理 LF 真实行。
-
-### 2. 破除“让模型复述调用者自我结论”的虚假置信（Anti-Confirmation Bias）
-- **社区踩坑**：*typesafe-mcp PR #13* 记录，智能体常在上下文中写下“明显是 P0 级别问题”，再向 JEV 提问确认，获得 0.99 的超高置信度。开发者误将其当成独立客观评判。
-- **ask-jev 解法**：
-  - 确立 **Advisory（咨询性）契约**：JEV 结果仅作辅助参考，不可直接用于越权授权、内存写入或安全放行。
-  - **双 0.85 严格判定门槛**：`choose` 模式不仅要求整体置信度 $\ge 0.85$，还必须要求获胜选项概率 $\ge 0.85$；`check` 模式严格以 $\ge 0.85$ 判 True、$\le 0.15$ 判 False，其余模糊区间一律输出 `unknown`（`answer: null`），坚决不给伪确定性。
-
-### 3. 终结 SDK 递归重试与尾延迟挂死（Anti-Retry Storms & Hard Timeout）
-- **社区踩坑**：官方 Python SDK 默认 2 次重试、500ms 起步退避、30 秒总超时；OMP、SemDecide 也默认 10 秒超时。当网络抖动或服务排队时，高频调用的 Agent 会被完全拖死。
-- **ask-jev 解法**：
-  - **单次请求硬 280ms Wall Deadline**：DNS 解析、TLS 握手、HTTP 头与完整 Body 接收全包在 280ms 内，0 次重试。
-  - **底层 POSIX 进程组强杀**：通过 `killpg(proc.pid, signal.SIGKILL)` 毫秒级回收子进程，绕过 Python 运行时线程阻塞。
-  - **全链路 Fail-Open**：超时、网络中断或 401/402/429 报错时，进程**一律以 Exit Code 0 退出**，`purify` 原样输出全文，Agent 正常向下执行，不吐脏日志。
-
-### 4. 坚守 Daemonless 架构，拒绝本地 Sidecar 攻击面（Zero Security Surface）
-- **社区踩坑**：*Winnow #1* 为了省去进程启动开销，在本地后台启动了未鉴权的 HTTP Sidecar，缺乏 Origin/Content-Type 校验，恶意网页或本地进程可轻易探测并盗刷付费额度。
-- **ask-jev 解法**：
-  - **纯命令行管道执行（CLI-First）**：不启动任何后台 Daemon，不开任何本地监听端口，零常驻攻击面。
-  - **文件描述符防越权钉死**：读取输入时逐级检查路径，使用 `O_DIRECTORY | O_NOFOLLOW | O_NONBLOCK` 打开，彻底免疫符号链接穿透攻击。
-  - **本地隐私防火墙**：词法与物理拦截 macOS `~/Pictures` 及其数据卷别名；内置正则嗅探，一旦发现私钥（`BEGIN PRIVATE KEY`）或 Bearer Token 立即阻断网络发送。
-
-### 5. 矫正语义度量与提示词错位（Semantic Alignment）
-- **社区踩坑**：*fast-jev #52* 问“材料是否绝对不可重新获取”，混淆了“任务必要性”与“可恢复性”，导致上下文被清空；Winnow 过于严苛的题面也误删了前置约束。
-- **ask-jev 解法**：题面规范统一定义为 **“继续正确完成当前任务所需的证据、限制或更正是什么”**，候选文本随问题完整发送，禁止在模型判定前做有损裁切。
-
-### 6. 严谨的数学验证与载荷边界（Strict Math & Payload Validation）
-- **社区踩坑**：*typesafe-mcp PR #15* 与 *fast-jev #29* 暴露了 JS float64 精度损失、超大包隐式截断却报成功、非法 NaN 进入业务逻辑等缺陷。
-- **ask-jev 解法**：严格限制输入 $\le 256\text{ KiB}$，响应 $\le 32\text{ KiB}$；强制校验浮点数为合法概率区间（$0.0 \le p \le 1.0$），遇到 `NaN`、`Inf`、负数或布尔混淆时严格抛出异常并降级。
+| 维度 | System 2（推理大模型） | ask-jev（System 1 辅助判断） |
+| :--- | :--- | :--- |
+| **响应耗时** | 1,500ms – 10,000ms+ | **硬性 < 280ms**（包含 DNS、TLS、Body 及进程回收） |
+| **输出契约** | 非结构化文本 / Markdown / 正则解析 JSON | **类型化 JSON 契约**（`schema: ask-jev.v1`） |
+| **内容提取** | 生成式摘要（容易漏掉行号、改写语句） | **物理 LF 真实行**（保留完整 AST 与语法结构） |
+| **异常处理** | 任务崩溃、超时挂起、输出格式混乱 | **全链路 Fail-Open（Exit 0）**，降级输出全部原文字节 |
+| **外部依赖** | 复杂 SDK、后台异步线程、额外三方包 | **零外部依赖**（纯 Python 3.10+ 标准库） |
+| **攻击面** | 本地常驻后台服务、开放本地端口 | **无守护进程 CLI**（支持 `O_NOFOLLOW` 与私钥过滤） |
 
 ---
 
-## 🚀 核心工作模式与使用示例
+### 社区实战经验与设计取舍
 
-### 1. `choose`：闭集决策分类
-在 2~12 个明确的选项中做出语义归类，适合工单分类、路由分发、意图识别。
+梳理 GitHub 社区（*NousResearch/Hermes, Winnow, fast-jev-compaction, typesafe-mcp, Pi, Prism, SemDecide*）在 Jev 早期应用中的实测反馈，我们针对性地确立了以下工程规范：
+
+1. **避免“保留叙述、删掉报错”导致的虚假完成（*fast-jev #65*）**
+   - *现象*：部分上下文压缩实现删除了底层工具的报错输出与退出码，却保留了智能体的对话叙述，导致智能体误以为已完成任务，连续 9 轮未调用工具发生幻觉。
+   - *解法*：`split_units()` 将 Python AST 模块、代码块、Git Diff 与关键报错标识（`Traceback`、`exit code`、`returncode`、`assert`、`panic`、`Error:`）做结构化整体保留，不破坏执行证据。
+
+2. **避免诱导模型确认调用者自我结论（*typesafe-mcp #13*）**
+   - *现象*：智能体在上下文中写入“明显是 P0 级别问题”，再向 Jev 发起确认提问，得到 0.99 的高置信度回复，开发者误将其作为客观验证。
+   - *解法*：Jev 输出严格保持 Advisory（参考性质）。`choose` 要求置信度 $\ge 0.85$ 且获胜项概率 $\ge 0.85$；`check` 在 $0.15 \sim 0.85$ 区间一律输出 `unknown`（`answer: null`）。提问仅承载中立事实。
+
+3. **终结 SDK 递归重试与尾延迟挂起**
+   - *现象*：官方 SDK 默认 2 次重试、500ms 退避与 10~30 秒超时，在多智能体密集调用时容易因网络抖动引起级联阻塞。
+   - *解法*：单次请求硬限 280ms，涵盖 DNS 解析、TLS 握手及完整响应接收。超时通过 POSIX 进程组直接发送 `SIGKILL` 回收。发生网络或状态码异常（401/402/429）时均以 Exit 0 退出并触发原生降级。
+
+4. **拒绝本地 Sidecar 带来的安全暴露面（*Winnow #1*）**
+   - *现象*：为减少冷启动开销而运行本地未鉴权 HTTP 服务，因缺少 Origin 和 Content-Type 校验，容易被本地网页或恶意脚本利用盗刷。
+   - *解法*：不开启常驻后台服务，不占用本地端口。全部交互通过标准输入输出及命令行管道完成。读取文件时使用 `O_DIRECTORY | O_NOFOLLOW` 防范软链接逃逸；正则检测到私钥（`BEGIN PRIVATE KEY`）或 Bearer Token 时自动拦截网络发送。
+
+5. **校正语义度量与提示词错位（*fast-jev #52*）**
+   - *现象*：把“材料是否绝对不可重新获取”当作判断准则，加上判定前对上下文的有损截断，导致关键任务信息被清空。
+   - *解法*：题面聚焦于任务延续性：*“继续正确完成当前任务所需的证据或约束是什么”*。候选材料完整随问题发送，不在判定前预先截断。
+
+6. **严格的数据与载荷校验（*typesafe-mcp #15 / fast-jev #29*）**
+   - *现象*：浮点精度损失（$> 2^{53}$）、大包响应静默截断却返回成功，以及未校验的 `NaN` 渗入逻辑。
+   - *解法*：输入限制 $\le 256\text{ KiB}$，请求 $\le 96\text{ KiB}$，响应 $\le 32\text{ KiB}$。强制校验浮点数为合法概率区间（$0.0 \le p \le 1.0$），遇到 `NaN`、`inf` 或布尔混用时严格降级。
+
+---
+
+### 工作模式与调用示例
+
+#### 1. `choose`：闭集分类
+在 2~12 个明确选项中做出语义判断。
 
 ```bash
-printf '%s\n' '修改 README 中安装命令的拼写错误' | \
-  ask-jev choose \
-    --question '这属于哪个 PR 类别？' \
-    --option '文档修复' \
-    --option '代码缺陷' \
-    --option '新特性'
+printf '%s\n' '修复安装命令中的拼写错误' | \
+  python3 scripts/ask_jev.py choose \
+    --question '属于哪个分类？' \
+    --option 'docs' \
+    --option 'bugfix' \
+    --option 'feature'
 ```
 
-### 2. `check`：证据支持度断言
-严格依据输入文本，判断某项断言是否得到事实支撑。
+#### 2. `check`：事实支撑度断言
+判断提供的上下文是否支撑特定陈述。
 
 ```bash
 git log -1 --stat | \
-  ask-jev check \
-    --question '该提交是否包含数据库迁移文件？'
+  python3 scripts/ask_jev.py check \
+    --question '该提交是否包含数据库迁移？'
 ```
 
-### 3. `purify`：原文保真结构提纯
-从海量文本中只提取符合条件的真实物理代码块、Traceback 或 Diff 片段，**绝不重写、绝不摘要、绝无幻觉**。
+#### 3. `purify`：原文保真提纯
+提取符合查询条件的真实代码块或报错片段，不修改原文字符与换行。
 
 ```bash
-cat /var/log/build.log | \
-  ask-jev purify \
-    --query '编译错误与失败断言'
+cat build.log | \
+  python3 scripts/ask_jev.py purify \
+    --query '编译错误与断言失败'
 ```
 
 ---
 
-## 📦 架构概览与文件清单
+### Agent 技能集成
 
-- `scripts/ask_jev.py`：主入口 CLI，内置同级脚本优先的双级级联路径解析。
-- `scripts/jev_context.py`：认知投影引擎，负责 AST 切分、LF 物理行映射与证据链哈希收据。
-- `scripts/harness_runtime.py`：POSIX 毫秒级受限执行器，负责子进程组强杀与超时隔离。
-- `references/contract.md`：严格的输入输出规范与判定协议契约。
-- `SKILL.md`：标准化 Agent 技能规范，无缝接入各类编程智能体。
-- `tests/`：146 项离线单元测试，覆盖 Unicode 归一化、沙箱越权与极限超时。
+项目根目录包含标准 [SKILL.md](SKILL.md) 描述文件：
+
+```bash
+git clone https://github.com/logicrw/ask-jev.git ~/.agents/skills/ask-jev
+chmod +x ~/.agents/skills/ask-jev/scripts/ask_jev.py
+```
+
+在智能体处理长日志时调用：
+```bash
+python3 ~/.agents/skills/ask-jev/scripts/ask_jev.py purify \
+  --query '错误原因及失败用例' \
+  --input-file test.log
+```
+未配置 API Key 或网络不可达时，工具将原样输出全部文本，不中断主流程。
 
 ---
 
-## 📄 许可证声明 (License)
+### 环境变量说明
 
-本项目采用 **GNU General Public License v3.0 or later (GPL-3.0-or-later)** 强 Copyleft 许可证。
-详情请参阅 [LICENSE](LICENSE)。
+| 变量名 | 是否必填 | 说明 |
+| :--- | :---: | :--- |
+| `TYPESAFE_API_KEY` | 仅远程调用必填 | 服务端 API 访问密钥。 |
+| `HARNESS_JEV_ALLOW_REMOTE` | 仅远程调用必填 | 明确的外发授权开关（`1` 或 `true`）。 |
+| `JEV_MODEL` | 否 | 自定义模型标识符。 |
+| `HARNESS_JEV_EVIDENCE_DIR` | 否 | 证据与执行凭证本地保存目录。 |
+
+---
+
+### 离线测试套件
+
+测试套件采用纯 Mock 方式验证，无需访问外部网络：
+
+```bash
+pytest -v
+```
+
+```
+146 passed in 7.16s
+```
+
+---
+
+### 许可证 (License)
+
+本项目采用 **GNU General Public License v3.0 or later (GPL-3.0-or-later)** 许可证。
+详情见 [LICENSE](LICENSE)。
 
 Copyright (C) 2026 logicrw.
