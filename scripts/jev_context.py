@@ -729,7 +729,8 @@ def auto_mark_text(text: str, *, source: str, query: str = '') -> dict | None:
             return None
         values = result['values']
         spans = [{key: unit[key] for key in ('id', 'start', 'end', 'kind')} for unit in units
-                 if max(values[unit['id'] + '_relevant'], values[unit['id'] + '_critical']) >= 0.8]
+                 if unit.get('pinned', False) or bool(CRITICAL.search(unit.get('text', '')))
+                 or max(values[unit['id'] + '_relevant'], values[unit['id'] + '_critical']) >= 0.8]
         if not spans or time.monotonic() >= deadline:
             return None
         return {key: result[key] for key in ('evidence_path', 'receipt', 'sha256', 'total', 'evaluated', 'partial')} | {

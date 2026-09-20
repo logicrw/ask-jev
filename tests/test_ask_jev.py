@@ -487,3 +487,36 @@ def test_pictures_component_guard_does_not_match_sibling_directory_names(monkeyp
                  '/Users/ExampleOther/Pictures/file.txt',
                  '/System/Volumes/Data/Users/Example/pictures-other/file.txt'):
         assert checker(Path(path)) is False
+
+
+def test_purify_preserves_pinned_and_critical_evidence_despite_low_scores(monkeypatch):
+    configured(monkeypatch)
+    code = (
+        'import json,sys\n'
+        'request=json.load(sys.stdin)\n'
+        'answers={key:{"type":"noul","noul":0.01} for key in request["questions"]}\n'
+        'print(json.dumps({"answers":answers,"model":"offline-fixture"}))\n'
+    )
+    production_evaluate = jev.evaluate
+
+    def evaluate(request, **kwargs):
+        kwargs.pop('worker_argv', None)
+        return production_evaluate(request, worker_argv=[sys.executable, '-c', code], **kwargs)
+
+    monkeypatch.setattr(jev, 'evaluate', evaluate)
+
+    raw = (
+        'start command\n\n'
+        'routine noise line 1\nroutine noise line 2\n\n'
+        'Traceback (most recent call last):\n'
+        '  File "app.py", line 42\n'
+        'RuntimeError: connection refused\n\n'
+        'exit code: 1\n'
+    )
+    result = invoke(monkeypatch, 'purify', raw)
+    assert result['status'] == 'ok'
+    assert 'Traceback (most recent call last):' in result['text']
+    assert 'RuntimeError: connection refused' in result['text']
+    assert 'exit code: 1' in result['text']
+    assert 'routine noise line 1' not in result['text']
+
