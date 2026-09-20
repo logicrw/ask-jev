@@ -1,23 +1,31 @@
+<div align="center">
+
 # ask-jev
 
 <p align="center">
-  <img src="https://img.shields.io/badge/license-GPL--3.0--or--later-blue.svg" alt="License: GPL-3.0" />
-  <img src="https://img.shields.io/badge/python-3.10%2B-brightgreen.svg" alt="Python: 3.10+" />
-  <img src="https://img.shields.io/badge/dependencies-zero-success.svg" alt="Zero External Dependencies" />
-  <img src="https://img.shields.io/badge/latency-bounded_%3C280ms-orange.svg" alt="Latency: <280ms" />
-  <img src="https://img.shields.io/badge/design-fail--open-blueviolet.svg" alt="Fail-Open Architecture" />
-  <img src="https://img.shields.io/badge/evidence-verbatim_LF-teal.svg" alt="Verbatim Evidence" />
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-GPL--3.0-blue.svg?style=flat-square" alt="License: GPL-3.0" /></a>
+  <img src="https://img.shields.io/badge/Python-3.10%2B-3776AB.svg?style=flat-square&logo=python&logoColor=white" alt="Python 3.10+" />
+  <img src="https://img.shields.io/badge/Dependencies-Zero-16a34a.svg?style=flat-square" alt="Zero Dependencies" />
+  <img src="https://img.shields.io/badge/Latency-%3C280ms-ea580c.svg?style=flat-square" alt="Latency: <280ms" />
+  <img src="https://img.shields.io/badge/Design-Fail--Open-7c3aed.svg?style=flat-square" alt="Fail-Open" />
+  <img src="https://img.shields.io/badge/Evidence-Verbatim_LF-0d9488.svg?style=flat-square" alt="Verbatim LF" />
+  <a href="https://logicrw.github.io/awesome-jev-projects/en/"><img src="https://img.shields.io/badge/Awesome%20Jev-Radar-d7fa91?style=flat-square&labelColor=1a201a" alt="Awesome Jev" /></a>
 </p>
 
 <p align="center">
-  Bounded advisory decisions and verbatim extractive reading view for AI coding agents and CLI pipelines.
+  <b>Bounded advisory decisions and verbatim extractive reading view for AI coding agents and CLI pipelines.</b>
   <br>
   面向 AI 编程智能体与命令行管道的有界决策与原文提纯工具。
 </p>
 
 <p align="center">
-  <a href="#english"><b>English</b></a> &nbsp;｜&nbsp; <a href="#中文"><b>中文</b></a>
+  <a href="#english"><b>English</b></a> &nbsp;•&nbsp; <a href="#中文"><b>简体中文</b></a> &nbsp;•&nbsp; <a href="https://logicrw.github.io/awesome-jev-projects/en/"><b>Awesome Jev ↗</b></a>
 </p>
+
+> [!NOTE]
+> **System-1 Cognitive Layer**: `ask-jev` is built as a fast, fail-open advisory filter for coding agents (Claude Code, Codex, Antigravity) — delegating micro-decisions and verbatim extraction without stalling execution loops.
+
+</div>
 
 ---
 
@@ -216,12 +224,12 @@ pytest -v
 
 | 维度 | System 2（推理大模型） | ask-jev（System 1 辅助判断） |
 | :--- | :--- | :--- |
-| **响应耗时** | 1,500ms – 10,000ms+ | **硬性 < 280ms**（包含 DNS、TLS、Body 及进程回收） |
-| **输出契约** | 非结构化文本 / Markdown / 正则解析 JSON | **类型化 JSON 契约**（`schema: ask-jev.v1`） |
+| **响应耗时** | 1,500ms – 10,000ms+（慢速阻塞） | **硬性 < 280ms**（包含 DNS、TLS、Body 及进程回收） |
+| **输出契约** | 非结构化文本 / Markdown / 正则解析 JSON | **强类型 JSON 契约**（`schema: ask-jev.v1`） |
 | **内容提取** | 生成式摘要（容易漏掉行号、改写语句） | **物理 LF 真实行**（保留完整 AST 与语法结构） |
 | **异常处理** | 任务崩溃、超时挂起、输出格式混乱 | **全链路 Fail-Open（Exit 0）**，降级输出全部原文字节 |
 | **外部依赖** | 复杂 SDK、后台异步线程、额外三方包 | **零外部依赖**（纯 Python 3.10+ 标准库） |
-| **攻击面** | 本地常驻后台服务、开放本地端口 | **无守护进程 CLI**（支持 `O_NOFOLLOW` 与私钥过滤） |
+| **攻击暴露面** | 本地常驻后台服务、开放本地端口 | **无守护进程 CLI**（支持 `O_NOFOLLOW` 与私钥过滤） |
 
 ---
 
