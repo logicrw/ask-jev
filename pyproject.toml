@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ask-jev"
-version = "1.0.0"
+version = "1.1.0"
 description = "Bounded advisory decisions and verbatim extractive reading view for AI coding agents and CLI pipelines"
 readme = "README.md"
 authors = [

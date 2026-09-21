@@ -2,348 +2,180 @@
 
 # ask-jev
 
-<p align="center">
-  <a href="LICENSE"><img src="https://img.shields.io/badge/License-GPL--3.0-blue.svg?style=flat-square" alt="License: GPL-3.0" /></a>
-  <img src="https://img.shields.io/badge/Python-3.10%2B-3776AB.svg?style=flat-square&logo=python&logoColor=white" alt="Python 3.10+" />
-  <img src="https://img.shields.io/badge/Dependencies-Zero-16a34a.svg?style=flat-square" alt="Zero Dependencies" />
-  <img src="https://img.shields.io/badge/Latency-%3C280ms-ea580c.svg?style=flat-square" alt="Latency: <280ms" />
-  <img src="https://img.shields.io/badge/Design-Fail--Open-7c3aed.svg?style=flat-square" alt="Fail-Open" />
-  <img src="https://img.shields.io/badge/Evidence-Verbatim_LF-0d9488.svg?style=flat-square" alt="Verbatim LF" />
-  <a href="https://logicrw.github.io/awesome-jev-projects/en/"><img src="https://img.shields.io/badge/Awesome%20Jev-Radar-d7fa91?style=flat-square&labelColor=1a201a" alt="Awesome Jev" /></a>
-</p>
+[![License: GPL-3.0](https://img.shields.io/badge/License-GPL--3.0-blue.svg)](LICENSE)
+![Python 3.10+](https://img.shields.io/badge/Python-3.10%2B-3776AB.svg)
+![Zero runtime dependencies](https://img.shields.io/badge/Runtime_dependencies-Zero-16a34a.svg)
+![Advisory budget: 280ms](https://img.shields.io/badge/Advisory_budget-280ms-ea580c.svg)
 
-<p align="center">
-  <b>Bounded advisory decisions and verbatim extractive reading view for AI coding agents and CLI pipelines.</b>
-  <br>
-  面向 AI 编程智能体与命令行管道的有界决策与原文提纯工具。
-</p>
+**Bounded advisory decisions and verbatim reading views for AI agents.**
 
-<p align="center">
-  <a href="#english"><b>English</b></a> &nbsp;•&nbsp; <a href="#中文"><b>简体中文</b></a> &nbsp;•&nbsp; <a href="https://logicrw.github.io/awesome-jev-projects/en/"><b>Awesome Jev ↗</b></a>
-</p>
+面向智能体的有界辅助决策与原文导读工具。
 
-> [!NOTE]
-> **System-1 Cognitive Layer**: `ask-jev` is built as a fast, fail-open advisory filter for coding agents (Claude Code, Codex, Antigravity) — delegating micro-decisions and verbatim extraction without stalling execution loops.
+[English](#english) · [简体中文](#中文) · [Output contract](references/contract.md) · [Awesome Jev](https://logicrw.github.io/awesome-jev-projects/en/)
 
 </div>
-
----
 
 <a name="english"></a>
 ## English
 
-### Overview
+`ask-jev` delegates small semantic judgments to TypeSafe's System One model through a Python standard-library CLI. It supports closed-set selection, evidence checks, ordered ratings, mixed questions over one state, and verbatim passage selection. The calling agent retains reasoning, verification and action authority.
 
-When building autonomous coding agents (Claude Code, Codex, Antigravity, OpenClaw, Maestro) or automated CI pipelines, delegating every minor branching decision to a heavy reasoning model introduces seconds of latency, token waste, and context drift. Conversely, naive regex heuristics are brittle and lack semantic understanding.
+### Choose the right primitive
 
-`ask-jev` is a lightweight, fail-open CLI utility and Agent Skill for closed-set choices, evidence verification, and verbatim text purification. It operates with a strict 280ms deadline and zero external dependencies.
+- **`choose` / Choice:** one outcome from mutually exclusive alternatives, with the full distribution and confidence; not a multi-label classifier.
+- **`check` / Noul:** the probability that one proposition is true given the supplied evidence; not the degree of severity, relevance or quality.
+- **`score` / Score:** a rating across 2–10 ordered descriptions, with probabilities, confidence and the complete level legend.
+- **`batch`:** 1–32 independent Choice, Noul or Score questions in one request; use several Nouls for labels that can all apply.
+- **`purify`:** selected original physical-LF spans, with local source evidence; no generated summary.
 
----
+This separation follows the official [Choice](https://docs.typesafe.ai/primitives/choice), [Noul](https://docs.typesafe.ai/primitives/noul) and [Score](https://docs.typesafe.ai/primitives/score) contracts. A Score is the probability-weighted mean of zero-based level positions, not a probability of truth; `judgment.normalized_score` divides it by `len(levels) - 1`. The distribution remains available because different distributions can have the same mean.
 
-### System 1 (Advisory) vs. System 2 (Reasoning LLMs)
+### Quick start
 
-| Dimension | System 2 (Reasoning LLMs) | ask-jev (System 1 Advisory) |
-| :--- | :--- | :--- |
-| **Latency** | 1,500ms – 10,000ms+ (Slow) | **< 280ms hard deadline** (DNS, TLS, body, reap) |
-| **Output Contract** | Freeform text / Markdown / Fragile JSON | **Typed JSON** (`schema: ask-jev.v1`) |
-| **Context Extraction** | Generative summary (paraphrased, hallucination risk) | **Verbatim physical LF lines** (AST & syntax preserved) |
-| **Failure Behavior** | Crash, prompt injection, hanging timeout | **Fail-open (exit 0)**, full original text fallback |
-| **Dependencies** | Bulky SDKs, background threads, external packages | **Zero external dependencies** (Python 3.10+ stdlib) |
-| **Attack Surface** | Background daemons, open loopback ports | **Daemonless CLI** (`O_NOFOLLOW`, private-key filter) |
-
----
-
-### Community Findings & Design Decisions
-
-Recent community experiments across GitHub (*NousResearch/Hermes, Winnow, fast-jev-compaction, typesafe-mcp, Pi, Prism, SemDecide*) revealed several practical failure modes in early Jev integrations. Here is how `ask-jev` handles them:
-
-1. **Narrative vs. Execution Evidence (*fast-jev #65*)**
-   - *Problem*: Aggressive context compression stripped raw tool errors and exit codes while keeping model chit-chat, causing agents to hallucinate completion for 9 consecutive turns.
-   - *Design*: `split_units()` encloses complete Python modules, fenced blocks, git diff hunks, and critical error tokens (`Traceback`, `exit code`, `returncode`, `assert`, `panic`, `Error:`). Execution evidence is never stripped from the narrative.
-
-2. **Self-Referential Confirmation Bias (*typesafe-mcp #13*)**
-   - *Problem*: Agents prompted Jev with statements like "Obviously P0" and received a 0.99 confidence confirmation that developers treated as independent verification.
-   - *Design*: Jev output is strictly advisory. `choose` requires both confidence $\ge 0.85$ and winner probability $\ge 0.85$. `check` returns `true` at $\ge 0.85$, `false` at $\le 0.15$, and `null` for intermediate values. Prompts carry neutral observations only.
-
-3. **SDK Retries & Hanging Deadlocks**
-   - *Problem*: Upstream SDKs defaulted to 2 retries, 500ms backoff, and 10–30s timeouts. In high-frequency agent loops, delayed responses stalled multi-agent coordination.
-   - *Design*: Single request with a hard 280ms wall deadline covering DNS, TLS, headers, and body read. Process group `SIGKILL` on expiration. Any network or provider error (401/402/429) exits 0 with a clean fallback.
-
-4. **Sidecar Daemon Security Surface (*Winnow #1*)**
-   - *Problem*: Running a local background HTTP sidecar without authentication or CORS allowed malicious web scripts to drain quotas or access context.
-   - *Design*: Zero background daemons, zero open ports. Executed strictly on-demand via standard UNIX pipes and stdin. Path traversal is blocked using `O_DIRECTORY | O_NOFOLLOW`. Payloads containing private keys (`BEGIN PRIVATE KEY`) or bearer tokens are dropped before reaching the network.
-
-5. **Semantic Misalignment & State Fitting (*fast-jev #52*)**
-   - *Problem*: Asking whether evidence was "non-reproducible" wiped entire task contexts. Pre-pruning text before passing it to the model compounded the issue.
-   - *Design*: Prompts focus strictly on task continuity: *"What evidence or constraints are required to continue correctly?"* Candidate text remains visible in full during judgment.
-
-6. **Payload Validation (*typesafe-mcp #15 / fast-jev #29*)**
-   - *Problem*: JavaScript float64 precision loss with integers $> 2^{53}$, silent truncations on oversized responses, and unhandled `NaN` values.
-   - *Design*: Enforces strict bounds: input $\le 256\text{ KiB}$, request $\le 96\text{ KiB}$, response $\le 32\text{ KiB}$. Validates finite probabilities ($0.0 \le p \le 1.0$) and rejects `NaN`, `inf`, and booleans.
-
----
-
-### CLI Modes & Examples
-
-#### 1. `choose`: Closed-Set Classification
-Categorizes text into 2–12 explicit options.
+Python 3.10+ on a POSIX system is required; there are no third-party runtime dependencies. Configure `TYPESAFE_API_KEY` securely in the process environment and explicitly permit remote processing:
 
 ```bash
-printf '%s\n' 'Fix typo in install command' | \
-  python3 scripts/ask_jev.py choose \
-    --question 'Which category fits best?' \
-    --option 'docs' \
-    --option 'bugfix' \
-    --option 'feature'
-```
+export HARNESS_JEV_ALLOW_REMOTE=1
 
-Output:
-```json
-{
-  "schema": "ask-jev.v1",
-  "mode": "choose",
-  "status": "ok",
-  "reason": "decisive",
-  "answer": "docs",
-  "judgment": {
-    "choice": "docs",
-    "confidence": 0.96,
-    "probabilities": {"docs": 0.96, "bugfix": 0.03, "feature": 0.01}
-  },
-  "advisory": true,
-  "receipt": "/path/to/receipt.json",
-  "evidence_path": "/path/to/source.txt"
-}
-```
+printf '%s\n' 'Fix the installation guide spelling.' | \
+  python3 scripts/ask_jev.py choose --question 'Which change category fits?' \
+  --option docs --option bugfix --option feature
 
-#### 2. `check`: Evidence Assertion
-Verifies whether the provided text factually supports a claim.
-
-```bash
-git log -1 --stat | \
+printf '%s\n' 'The test process exited 7.' | \
   python3 scripts/ask_jev.py check \
-    --question 'Does this commit include database migrations?'
-```
+  --question 'Does the evidence show a successful test run?' --expect true
 
-Output:
-```json
-{
-  "schema": "ask-jev.v1",
-  "mode": "check",
-  "status": "ok",
-  "reason": "decisive",
-  "answer": false,
-  "judgment": 0.04,
-  "advisory": true,
-  "receipt": "/path/to/receipt.json",
-  "evidence_path": "/path/to/source.txt"
-}
-```
+printf '%s\n' 'Export fails in Safari; Chrome works.' | \
+  python3 scripts/ask_jev.py score --question 'How severe is this defect?' \
+  --level 'Cosmetic defect; functionality works' \
+  --level 'Functionality fails; a usable workaround exists' \
+  --level 'Functionality fails; no usable workaround exists'
 
-#### 3. `purify`: Verbatim Extractive View
-Selects relevant physical line spans from verbose logs while preserving byte-for-byte fidelity.
-
-```bash
-cat build.log | \
-  python3 scripts/ask_jev.py purify \
-    --query 'Compiler errors, tracebacks, and failed assertions'
-```
-
-Output:
-```json
-{
-  "schema": "ask-jev.v1",
-  "mode": "purify",
-  "status": "ok",
-  "reason": "verbatim_selection",
-  "original_available": true,
-  "spans": [{"start": 42, "end": 68}],
-  "text": "Traceback (most recent call last):\n  File \"app.py\", line 12, in <module>\n..."
-}
-```
-
----
-
-### Agent Skill Integration
-
-`ask-jev` includes a standard [SKILL.md](SKILL.md) for coding agents.
-
-```bash
-# Clone directly into your agent skills directory
-git clone https://github.com/logicrw/ask-jev.git ~/.agents/skills/ask-jev
-chmod +x ~/.agents/skills/ask-jev/scripts/ask_jev.py
-```
-
-When an agent needs to prune a 150 KiB log:
-```bash
-python3 ~/.agents/skills/ask-jev/scripts/ask_jev.py purify \
-  --query 'Error causes and failing tests' \
+python3 scripts/ask_jev.py purify --query 'Failure causes and corrections' \
   --input-file test.log
 ```
-If credentials are not configured or the network is unreachable, `ask-jev` automatically emits the entire original input without failing the agent.
 
----
+Every command reads UTF-8 from stdin or `--input-file`. Without both environment gates, no remote call is made: judgments return `answer: null`, and purification returns the full original text inside JSON. Only the exact consent value `1` enables remote processing; `true` does not.
 
-### Environment Variables
+### One state, one request, several judgments
 
-| Variable | Required | Description |
-| :--- | :---: | :--- |
-| `TYPESAFE_API_KEY` | Yes (for remote) | API key for the underlying provider. |
-| `HARNESS_JEV_ALLOW_REMOTE` | Yes (for remote) | Explicit consent gate (`1` or `true`). |
-| `JEV_MODEL` | No | Model override (defaults to standard fast model). |
-| `HARNESS_JEV_EVIDENCE_DIR` | No | Local directory for raw evidence and receipts. |
-
----
-
-### Test Suite
-
-The test suite runs completely offline with 100% mocked transport:
+Use named JSON fields for observations and self-contained instructions for each question. Question IDs bind answers; they do not carry instructions to the model. References such as `ticket.text` are textual guidance to the model, not a local JSONPath evaluator. See the official [State](https://docs.typesafe.ai/concepts/state) and [speculative fan-out](https://docs.typesafe.ai/patterns/fan-out) guidance.
 
 ```bash
-pytest -v
+python3 scripts/ask_jev.py batch <<'JSON'
+{
+  "state": {
+    "ticket": {"text": "Export crashes in Safari. Chrome works. Please refund my subscription."}
+  },
+  "questions": {
+    "category": {
+      "type": "choice",
+      "instructions": "Which team should first handle `ticket.text`?",
+      "criteria": {
+        "engineering": "A broken product feature needs investigation",
+        "billing": "The message concerns only charges or refunds",
+        "other": "Neither description applies"
+      }
+    },
+    "severity": {
+      "type": "score",
+      "instructions": "How severe is the defect described in `ticket.text`?",
+      "criteria": [
+        "Cosmetic defect; functionality works",
+        "Functionality fails; a usable workaround exists",
+        "Functionality fails; no usable workaround exists"
+      ]
+    },
+    "refund_requested": {
+      "type": "noul",
+      "instructions": "Does `ticket.text` explicitly request a refund?"
+    },
+    "workaround_present": {
+      "type": "noul",
+      "instructions": "Does `ticket.text` identify a usable workaround?",
+      "expect": true
+    }
+  }
+}
+JSON
 ```
 
-```
-147 passed in 6.64s
+All questions see the same state and are independent: one cannot read another's answer. The caller selects the applicable branch after the response, for example inspecting severity only when the category is engineering. An unused speculative answer's uncertainty does not block the whole batch. `expect` is local policy, removed before the provider request to avoid suggesting the desired answer.
+
+### Verify, then escalate when needed
+
+JSON stdout keeps `schema: ask-jev.v1`; the new modes and fields are additive. Existing `choose`, `check` and `purify` behavior remains available.
+
+- `choose` returns an answer only when both confidence and winner probability are at least 0.85.
+- `check` returns true at or above 0.85, false at or below 0.15, and `unknown` otherwise.
+- `score` returns the raw ordinal score only when confidence is at least 0.85; otherwise `answer` is null while the complete `judgment` remains available.
+- `escalation` reports `required`, `target` and `reason`: uncertainty, unavailability, or a decisive Noul contradicting explicit `expect`. A false answer alone is not an escalation trigger.
+
+For example, an uncertain result carries:
+
+```json
+{"required": true, "target": "primary_model", "reason": "uncertain"}
 ```
 
----
+This is a request for the caller to resume reasoning or the native workflow. It does not call a larger model, involve a human, retry, or grant permission. For `batch`, escalation belongs to each entry in `decisions`; top-level `status: "ok"` means the response validated, not that every judgment was decisive or every claim was true. Full details are in the [output contract](references/contract.md).
+
+These thresholds are local operating policy, not locally calibrated accuracy guarantees. Official [confidence guidance](https://docs.typesafe.ai/confidence) recommends validating thresholds against the domain and consequences. The CLI retains provider confidence rather than presenting an invented entropy threshold as an official rule.
+
+### Failure and evidence boundaries
+
+The advisory operation shares a 280ms budget across evidence preparation, one HTTP request and receipt persistence, with up to 5ms process-reap wait. This excludes CLI startup and native input reading; operating-system scheduling prevents a hard real-time end-to-end guarantee. There are no retries, daemons or listening ports.
+
+Missing consent/key, 401/402/429, connection failure, malformed responses, storage failures and deadline expiry silently return `fallback` with exit 0. Invalid local input returns structured `error` with exit 64; argparse usage errors use exit 2. Exit 0 alone does not prove that Jev ran.
+
+Raw purification text or structured judgment evidence is saved privately before evaluation; successful results expose exact `receipt` and `evidence_path` pointers. Source hashes establish identity, not truth. Structural grouping protects recognized code, diffs and tracebacks, but semantic passage selection can still omit relevant context: consult the retained source when that matters. Sensitive-text heuristics are an additional guard, not proof that arbitrary content is safe to transmit.
+
+Limits are 256 KiB input, 96 KiB encoded request, 28 KiB state/question pair and 32 KiB response. Batch questions share these limits and one deadline; the implementation does not split an oversized batch into additional network requests.
+
+### Configuration and skill use
+
+| Variable | Meaning |
+| --- | --- |
+| `TYPESAFE_API_KEY` | Required for remote calls; never loaded from credential files by this CLI. |
+| `HARNESS_JEV_ALLOW_REMOTE` | Required exact value `1` for remote processing. |
+| `JEV_MODEL` | Optional provider model override. |
+| `HARNESS_JEV_EVIDENCE_DIR` | Optional private evidence directory; ownership and no-symlink checks apply. |
+
+The entrypoint loads the colocated `scripts/jev_context.py` first, with the canonical `~/.agents/scripts` runtime as a fallback. Keep the CLI and its runtime together when installing this repository as a skill. [SKILL.md](SKILL.md) supplies concise agent instructions; an existing shared skill installation should be updated through its normal governance workflow.
+
+```bash
+python3 ~/.agents/skills/ask-jev/scripts/ask_jev.py batch --input-file questions.json
+python3 -m pytest tests/
+```
+
+Tests use local fixtures and mocked provider results; passing them establishes interface, evidence and failure behavior, not live-service latency or semantic accuracy.
 
 <a name="中文"></a>
 ## 中文
 
-### 项目概述
+`ask-jev` 是智能体的辅助判断工具：让 Jev 在既有证据上做小而明确的判断，主模型继续负责推理、复核与行动。运行代码仅依赖 Python 标准库，保留原有 `choose`、`check`、`purify`，新增 `score` 与 `batch`；JSON 契约仍为 `ask-jev.v1`。
 
-在构建自主编程智能体（Claude Code、Codex、Antigravity、OpenClaw 等）或自动化 CI/CD 流程时，如果将每一个微小的分支判断都派发给重型推理大模型，会引入数秒的响应延迟、额外的 Token 消耗以及上下文偏移。纯正则规则虽然快速，但往往难以应对灵活的语义判断。
+### 原语应当各司其职
 
-`ask-jev` 是一个面向命令行管道与智能体的辅助工具，用于闭集分类、事实支撑度校验与原文结构提纯。工具执行受限于 280ms 硬时限，采用纯 Python 标准库实现，且具备全链路 Fail-Open 降级能力。
+- **闭集选一项用 Choice**：分类候选互斥，保留全部概率和置信度。
+- **多个标签可同时成立用多个 Noul**：每个命题独立判断，不能把互斥分类硬当作多标签。
+- **严重程度等有序分级用 Score**：提供 2–10 个完整、具体、从低到高的描述，返回等级序号的概率加权均值、全部分布和图例；归一化值是尺度位置，不是“事实为真的概率”。
+- **多项独立判断用 batch**：同一结构化 State 只发一个请求，题目数量为 1–32；调用方根据适用分支消费结果，不能把每个未用分支的未知状态都当作整体阻断。
+- **重点导读用 purify**：选取原文物理 LF 行区间，保留本地完整证据，不生成改写摘要。
 
----
+上方示例可直接运行。题目 ID 只用于匹配响应，完整问题和字段路径必须写入 `instructions`；路径是给模型的语义提示，不会在本地执行 JSONPath。Score 的每级描述独立评估，应写明情形，不使用“比上一级更严重”之类依赖邻居的描述。
 
-### 机制对比：System 1（辅助判断）vs. System 2（推理大模型）
+### 升级信号与降级契约
 
-| 维度 | System 2（推理大模型） | ask-jev（System 1 辅助判断） |
-| :--- | :--- | :--- |
-| **响应耗时** | 1,500ms – 10,000ms+（慢速阻塞） | **硬性 < 280ms**（包含 DNS、TLS、Body 及进程回收） |
-| **输出契约** | 非结构化文本 / Markdown / 正则解析 JSON | **强类型 JSON 契约**（`schema: ask-jev.v1`） |
-| **内容提取** | 生成式摘要（容易漏掉行号、改写语句） | **物理 LF 真实行**（保留完整 AST 与语法结构） |
-| **异常处理** | 任务崩溃、超时挂起、输出格式混乱 | **全链路 Fail-Open（Exit 0）**，降级输出全部原文字节 |
-| **外部依赖** | 复杂 SDK、后台异步线程、额外三方包 | **零外部依赖**（纯 Python 3.10+ 标准库） |
-| **攻击暴露面** | 本地常驻后台服务、开放本地端口 | **无守护进程 CLI**（支持 `O_NOFOLLOW` 与私钥过滤） |
+`escalation` 显式告诉调用方是否需要接手，以及原因是 `uncertain`、`unavailable` 还是 `expectation_mismatch`。`check --expect true|false` 和 batch 中 Noul 的 `expect` 只参与本地比较，不发给模型；明确判断为 false 本身不代表故障。升级目标为 `primary_model`，工具不会自动调用其他模型、联系人工或授予权限。
 
----
+`choose` 保留“置信度和获胜概率均至少 0.85”的门槛，`check` 保留 0.85/0.15 双阈值，`score` 在置信度至少 0.85 时给出数值答案。低置信度返回 `unknown`，保留判断原始分布以供复核。阈值属于本地保守策略，尚不能当作准确率承诺。
 
-### 社区实战经验与设计取舍
+只有 `TYPESAFE_API_KEY` 和 `HARNESS_JEV_ALLOW_REMOTE=1` 同时存在才联网，`true` 不等于 `1`。欠费、鉴权、限流、断网、超时或存储异常均静默返回原生降级结果：判断为空，提纯返回全文；输入或命令错误仍明确报错。
 
-梳理 GitHub 社区（*NousResearch/Hermes, Winnow, fast-jev-compaction, typesafe-mcp, Pi, Prism, SemDecide*）在 Jev 早期应用中的实测反馈，我们针对性地确立了以下工程规范：
+280ms 是证据处理、一次 HTTP 请求与凭证保存共用的预算，另有最多 5ms 进程回收等待；不含 CLI 启动和原生输入读取，也不构成操作系统级硬实时保证。没有重试或常驻服务。证据路径、输入预算与具体输出字段见 [契约说明](references/contract.md)，测试命令为 `python3 -m pytest tests/`；离线测试通过不代表真实服务质量或线上语义效果已验证。
 
-1. **避免“保留叙述、删掉报错”导致的虚假完成（*fast-jev #65*）**
-   - *现象*：部分上下文压缩实现删除了底层工具的报错输出与退出码，却保留了智能体的对话叙述，导致智能体误以为已完成任务，连续 9 轮未调用工具发生幻觉。
-   - *解法*：`split_units()` 将 Python AST 模块、代码块、Git Diff 与关键报错标识（`Traceback`、`exit code`、`returncode`、`assert`、`panic`、`Error:`）做结构化整体保留，不破坏执行证据。
+## Sources and license
 
-2. **避免诱导模型确认调用者自我结论（*typesafe-mcp #13*）**
-   - *现象*：智能体在上下文中写入“明显是 P0 级别问题”，再向 Jev 发起确认提问，得到 0.99 的高置信度回复，开发者误将其作为客观验证。
-   - *解法*：Jev 输出严格保持 Advisory（参考性质）。`choose` 要求置信度 $\ge 0.85$ 且获胜项概率 $\ge 0.85$；`check` 在 $0.15 \sim 0.85$ 区间一律输出 `unknown`（`answer: null`）。提问仅承载中立事实。
+Design references: [official skill](https://raw.githubusercontent.com/typesafe-ai/skills/main/skills/typesafe-ai/SKILL.md), [documentation index](https://docs.typesafe.ai/llms.txt), [API](https://docs.typesafe.ai/api), and the primitive pages linked above. Local limits, deadlines, abstention thresholds and permission boundaries belong to this project, not the provider specification.
 
-3. **终结 SDK 递归重试与尾延迟挂起**
-   - *现象*：官方 SDK 默认 2 次重试、500ms 退避与 10~30 秒超时，在多智能体密集调用时容易因网络抖动引起级联阻塞。
-   - *解法*：单次请求硬限 280ms，涵盖 DNS 解析、TLS 握手及完整响应接收。超时通过 POSIX 进程组直接发送 `SIGKILL` 回收。发生网络或状态码异常（401/402/429）时均以 Exit 0 退出并触发原生降级。
-
-4. **拒绝本地 Sidecar 带来的安全暴露面（*Winnow #1*）**
-   - *现象*：为减少冷启动开销而运行本地未鉴权 HTTP 服务，因缺少 Origin 和 Content-Type 校验，容易被本地网页或恶意脚本利用盗刷。
-   - *解法*：不开启常驻后台服务，不占用本地端口。全部交互通过标准输入输出及命令行管道完成。读取文件时使用 `O_DIRECTORY | O_NOFOLLOW` 防范软链接逃逸；正则检测到私钥（`BEGIN PRIVATE KEY`）或 Bearer Token 时自动拦截网络发送。
-
-5. **校正语义度量与提示词错位（*fast-jev #52*）**
-   - *现象*：把“材料是否绝对不可重新获取”当作判断准则，加上判定前对上下文的有损截断，导致关键任务信息被清空。
-   - *解法*：题面聚焦于任务延续性：*“继续正确完成当前任务所需的证据或约束是什么”*。候选材料完整随问题发送，不在判定前预先截断。
-
-6. **严格的数据与载荷校验（*typesafe-mcp #15 / fast-jev #29*）**
-   - *现象*：浮点精度损失（$> 2^{53}$）、大包响应静默截断却返回成功，以及未校验的 `NaN` 渗入逻辑。
-   - *解法*：输入限制 $\le 256\text{ KiB}$，请求 $\le 96\text{ KiB}$，响应 $\le 32\text{ KiB}$。强制校验浮点数为合法概率区间（$0.0 \le p \le 1.0$），遇到 `NaN`、`inf` 或布尔混用时严格降级。
-
----
-
-### 工作模式与调用示例
-
-#### 1. `choose`：闭集分类
-在 2~12 个明确选项中做出语义判断。
-
-```bash
-printf '%s\n' '修复安装命令中的拼写错误' | \
-  python3 scripts/ask_jev.py choose \
-    --question '属于哪个分类？' \
-    --option 'docs' \
-    --option 'bugfix' \
-    --option 'feature'
-```
-
-#### 2. `check`：事实支撑度断言
-判断提供的上下文是否支撑特定陈述。
-
-```bash
-git log -1 --stat | \
-  python3 scripts/ask_jev.py check \
-    --question '该提交是否包含数据库迁移？'
-```
-
-#### 3. `purify`：原文保真提纯
-提取符合查询条件的真实代码块或报错片段，不修改原文字符与换行。
-
-```bash
-cat build.log | \
-  python3 scripts/ask_jev.py purify \
-    --query '编译错误与断言失败'
-```
-
----
-
-### Agent 技能集成
-
-项目根目录包含标准 [SKILL.md](SKILL.md) 描述文件：
-
-```bash
-git clone https://github.com/logicrw/ask-jev.git ~/.agents/skills/ask-jev
-chmod +x ~/.agents/skills/ask-jev/scripts/ask_jev.py
-```
-
-在智能体处理长日志时调用：
-```bash
-python3 ~/.agents/skills/ask-jev/scripts/ask_jev.py purify \
-  --query '错误原因及失败用例' \
-  --input-file test.log
-```
-未配置 API Key 或网络不可达时，工具将原样输出全部文本，不中断主流程。
-
----
-
-### 环境变量说明
-
-| 变量名 | 是否必填 | 说明 |
-| :--- | :---: | :--- |
-| `TYPESAFE_API_KEY` | 仅远程调用必填 | 服务端 API 访问密钥。 |
-| `HARNESS_JEV_ALLOW_REMOTE` | 仅远程调用必填 | 明确的外发授权开关（`1` 或 `true`）。 |
-| `JEV_MODEL` | 否 | 自定义模型标识符。 |
-| `HARNESS_JEV_EVIDENCE_DIR` | 否 | 证据与执行凭证本地保存目录。 |
-
----
-
-### 离线测试套件
-
-测试套件采用纯 Mock 方式验证，无需访问外部网络：
-
-```bash
-pytest -v
-```
-
-```
-147 passed in 6.64s
-```
-
----
-
-### 许可证 (License)
-
-本项目采用 **GNU General Public License v3.0 or later (GPL-3.0-or-later)** 许可证。
-详情见 [LICENSE](LICENSE)。
-
-Copyright (C) 2026 logicrw.
+[GNU GPL-3.0-or-later](LICENSE). Copyright (C) 2026 logicrw.

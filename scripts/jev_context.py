@@ -179,6 +179,32 @@ def validate_answers(response: object, expected: set[str], questions: dict | Non
     values = {}
     for key, answer in answers.items():
         question = (questions or {}).get(key, {'type': 'noul'})
+        if question.get('type') not in {'choice', 'noul', 'score'}:
+            raise ValueError('unknown question type')
+        if question.get('type') == 'score':
+            if not isinstance(answer, dict) or answer.get('type') != 'score':
+                raise ValueError('invalid score type')
+            criteria = question.get('criteria')
+            if not isinstance(criteria, list) or not 2 <= len(criteria) <= 10:
+                raise ValueError('invalid score criteria')
+            probabilities, legend = answer.get('probabilities'), answer.get('legend')
+            score, confidence = answer.get('score'), answer.get('confidence')
+            keys = {str(index) for index in range(len(criteria))}
+            if (not isinstance(probabilities, dict) or set(probabilities) != keys
+                    or not isinstance(legend, dict) or set(legend) != keys
+                    or not _finite_between(score, 0, len(criteria) - 1)
+                    or not _finite_between(confidence, 0, 1)
+                    or any(not _finite_between(value, 0, 1) for value in probabilities.values())
+                    or not math.isclose(sum(probabilities.values()), 1.0, rel_tol=0, abs_tol=1e-5)
+                    or not math.isclose(score, sum(index * probabilities[str(index)]
+                                                   for index in range(len(criteria))),
+                                        rel_tol=0, abs_tol=1e-5)
+                    or _json_value(legend, canonical=True) != _json_value(
+                        {str(index): level for index, level in enumerate(criteria)}, canonical=True)):
+                raise ValueError('invalid score distribution')
+            values[key] = {'score': score, 'normalized_score': score / (len(criteria) - 1),
+                           'confidence': confidence, 'probabilities': probabilities, 'legend': legend}
+            continue
         if question.get('type') == 'choice':
             if not isinstance(answer, dict) or answer.get('type') != 'choice':
                 raise ValueError('invalid choice type')
@@ -203,6 +229,40 @@ def validate_answers(response: object, expected: set[str], questions: dict | Non
             raise ValueError('invalid probability')
         values[key] = float(value)
     return values
+
+
+def _finite_between(value: object, low: float, high: float) -> bool:
+    return type(value) in (int, float) and low <= value <= high and math.isfinite(value)
+
+
+def _json_value(value: object, *, canonical: bool = False) -> str:
+    """Strict, bounded JSON: no coerced keys, tuples, custom objects or nonfinite values."""
+    pending, seen, characters = [value], 0, 0
+    while pending:
+        item = pending.pop()
+        seen += 1
+        if seen > 10000:
+            raise ValueError('invalid_json')
+        if type(item) is str:
+            characters += len(item)
+            if characters > MAX_INPUT_BYTES:
+                raise ValueError('input_budget')
+        elif type(item) is dict:
+            if len(item) > 10000 or any(type(key) is not str for key in item):
+                raise ValueError('invalid_json')
+            pending.extend(item.keys())
+            pending.extend(item.values())
+        elif type(item) is list:
+            if len(item) > 10000:
+                raise ValueError('invalid_json')
+            pending.extend(item)
+        elif item is not None and type(item) not in (bool, int, float):
+            raise ValueError('invalid_json')
+    try:
+        return json.dumps(value, ensure_ascii=False, sort_keys=canonical,
+                          separators=(',', ':'), allow_nan=False)
+    except (ValueError, TypeError, RecursionError, OverflowError):
+        raise ValueError('invalid_json') from None
 
 
 def _unique_pairs(pairs):
@@ -601,6 +661,90 @@ def _evaluate_evidenced(request: dict, evidence: object, source: str, total: int
                     values=decision['values'], elapsed_ms=decision.get('elapsed_ms'))
     _save_auto_receipt(directory, metadata, 'decision.json', deadline=deadline)
     return {**metadata, 'receipt': str(directory / 'decision.json')}
+
+
+def prepare_questions(state: object, questions: object) -> dict:
+    """Validate local input and copy official wire questions; never contact the provider.
+
+    Question identities only bind responses. The actual question and any state
+    paths must appear in instructions; ordered Score levels are not Choice labels.
+    """
+    def nonempty(value):
+        return type(value) in (str, dict, list) and bool(value.strip() if type(value) is str else value)
+
+    if not nonempty(state):
+        raise ValueError('invalid_state')
+    _json_value(state)
+    if type(questions) is not dict or not 1 <= len(questions) <= MAX_UNITS:
+        raise ValueError('invalid_questions')
+    questions = json.loads(_json_value(questions))
+    for ident, question in questions.items():
+        if not re.fullmatch(r'[A-Za-z][A-Za-z0-9_-]{0,63}', ident):
+            raise ValueError('invalid_question_id')
+        if (type(question) is not dict or set(question) - {'type', 'instructions', 'criteria'}
+                or question.get('type') not in ('noul', 'choice', 'score')):
+            raise ValueError('invalid_question')
+        instructions = question.get('instructions')
+        if not nonempty(instructions) or len(_json_value(instructions)) > 4096:
+            raise ValueError('invalid_instructions')
+        kind, criteria = question['type'], question.get('criteria')
+        if kind == 'choice':
+            if (type(criteria) is not dict or not 2 <= len(criteria) <= 255
+                    or any(not label.strip() or len(label) > 128
+                           or any(ord(char) < 32 or char in '\x7f\x85\u2028\u2029' for char in label)
+                           or (value is not None and not nonempty(value))
+                           for label, value in criteria.items())):
+                raise ValueError('invalid_choice_criteria')
+        elif kind == 'score':
+            if (type(criteria) is not list or not 2 <= len(criteria) <= 10
+                    or any(not nonempty(level) for level in criteria)
+                    or len({_json_value(level, canonical=True) for level in criteria}) != len(criteria)):
+                raise ValueError('invalid_score_criteria')
+        elif 'criteria' in question:
+            if (type(criteria) is not dict or set(criteria) != {'true', 'false'}
+                    or any(not nonempty(value) for value in criteria.values())):
+                raise ValueError('invalid_noul_criteria')
+    return questions
+
+
+def _sensitive_json(value: object) -> bool:
+    """Extend the existing heuristic to quoted JSON keys; this is not secret detection proof."""
+    pending = [(value, ())]
+    while pending:
+        item, fields = pending.pop()
+        if isinstance(item, str):
+            if SENSITIVE.search(item) or any(
+                    SENSITIVE.search(f'{field}={item}') or SENSITIVE.search(f'{field}: {item}')
+                    for field in fields):
+                return True
+        if isinstance(item, dict):
+            for key, child in item.items():
+                # Container shapes do not remove an ancestor field's meaning;
+                # ordinary field names still must match the existing heuristic.
+                pending.append((key, ()))
+                pending.append((child, fields + (key,)))
+        elif isinstance(item, list):
+            pending.extend((child, fields) for child in item)
+    return False
+
+
+def ask_questions(state: object, questions: dict) -> dict | None:
+    """One mixed-primitive request with one deadline and complete original evidence."""
+    deadline = time.monotonic() + DEADLINE_SECONDS
+    if not auto_enabled():
+        return None
+    try:
+        wire_questions = prepare_questions(state, questions)
+        model = os.environ.get('JEV_MODEL') or DEFAULT_MODEL
+        if not re.fullmatch(r'[A-Za-z0-9._/-]{1,128}', model):
+            return None
+        evidence = {'state': state, 'questions': questions}
+        if _sensitive_json(evidence) or time.monotonic() >= deadline:
+            return None
+        request = {'model': model, 'state': state, 'questions': wire_questions}
+        return _evaluate_evidenced(request, evidence, 'ask-jev', len(questions), len(questions), deadline)
+    except Exception:
+        return None
 
 
 def ask_decision(text: str, question: str, options: list[str] | None = None) -> dict | None:
