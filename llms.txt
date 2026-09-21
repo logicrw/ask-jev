@@ -1,0 +1,76 @@
+# ask-jev
+
+> Bounded advisory decisions and verbatim reading views for AI coding agents and CLI pipelines.
+
+`ask-jev` is a zero-dependency Python standard-library CLI that delegates semantic micro-decisions (closed-set routing, evidence checks, ordered ratings, extractive reading) to TypeSafe's System-1 model. It is designed for calling agents (Claude Code, Cursor, Copilot, custom subagents) to retain reasoning, verification, and action authority while offloading fast (advisory budget ~280ms) judgments.
+
+Website: https://logicrw.github.io/awesome-jev-projects/
+Repository: https://github.com/logicrw/ask-jev
+License: GPL-3.0
+Runtime: Python 3.10+ (POSIX, zero 3rd-party runtime dependencies)
+
+## Core Primitives
+
+- `choose` (Choice): Pick exactly one outcome from 2-10 mutually exclusive alternatives. Returns full distribution, normalized entropy, and confidence.
+- `check` (Noul): Calculate the posterior probability that a single proposition is true given supplied evidence.
+- `score` (Score): Map evidence against 2-10 ordered levels. Returns probability distribution, confidence, and expected score.
+- `batch`: Execute 1-32 independent Choice, Noul, or Score questions over one state in a single request.
+- `purify`: Extract original physical line-feed spans relevant to a query. Returns verbatim source passages; never generates synthetic summaries.
+
+## Environment & Gate Invariants
+
+1. `TYPESAFE_API_KEY`: API authentication key.
+2. `HARNESS_JEV_ALLOW_REMOTE=1`: Explicit gate for remote calls. Only the exact string `1` enables network calls.
+3. Fail-Open Architecture: If keys are missing, timeout occurs, or network fails, `ask-jev` exits 0 without polluting stderr. Judgments return `answer: null`, and `purify` returns the full input text.
+
+## CLI Invocation Reference
+
+### 1. `choose` (Mutually exclusive classification)
+```bash
+printf '%s\n' 'Fix typo in documentation' | \
+  python3 scripts/ask_jev.py choose \
+  --question 'Which change category fits?' \
+  --option docs \
+  --option bugfix \
+  --option feature
+```
+JSON response key fields: `status`, `answer`, `confidence`, `distribution`, `margin`.
+
+### 2. `check` (Proposition verification against evidence)
+```bash
+printf '%s\n' 'All 48 tests passed in 1.2s.' | \
+  python3 scripts/ask_jev.py check \
+  --question 'Did all tests pass successfully?' \
+  --expect true
+```
+JSON response key fields: `status`, `probability`, `answer` (boolean), `confidence`.
+
+### 3. `score` (Ordered ordinal evaluation)
+```bash
+printf '%s\n' 'Feature works but logs a deprecation warning.' | \
+  python3 scripts/ask_jev.py score \
+  --question 'How severe is this issue?' \
+  --level 'Cosmetic or warning only' \
+  --level 'Moderate degradation with workaround' \
+  --level 'Critical block with no workaround'
+```
+JSON response key fields: `status`, `score` (index), `normalized_score` (0.0 to 1.0), `distribution`.
+
+### 4. `purify` (Verbatim passage extraction without hallucination)
+```bash
+python3 scripts/ask_jev.py purify \
+  --query 'Root cause of build failure' \
+  --input-file build.log
+```
+JSON response key fields: `status`, `text` (verbatim extracted text), `spans` (line offsets).
+
+## What `ask-jev` is NOT (Negative Constraints)
+
+- NOT an autonomous agent: It does not execute actions, edit files, or run shell commands.
+- NOT an authorization bypass: High-confidence output is advisory and cannot auto-grant privileges.
+- NOT an open-ended generative LLM: It produces structured JSON distributions or verbatim extracts, not essays or code.
+
+## Key Resources
+- Contract & Output Schemas: [references/contract.md](https://github.com/logicrw/ask-jev/blob/main/references/contract.md)
+- Agent Skill Definition: [SKILL.md](https://github.com/logicrw/ask-jev/blob/main/SKILL.md)
+- Awesome Jev Ecosystem: https://logicrw.github.io/awesome-jev-projects/
